@@ -314,3 +314,50 @@ class PointNetFeaturePropagation(nn.Module):
             new_points = F.relu(bn(conv(new_points)))
         return new_points
 
+
+class FocalLoss(nn.Module):
+    def __init__(self, alpha=None, gamma=2, reduction='mean'):
+        super(FocalLoss, self).__init__()
+        self.alpha = alpha
+        self.gamma = gamma
+        self.reduction = reduction
+
+    def forward(self, inputs, targets):
+        # 计算CE损失
+        ce_loss = F.cross_entropy(inputs, targets, weight=self.alpha, reduction='none')
+        # 获取每个样本的真实类别预测概率
+        pt = torch.exp(-ce_loss)
+        # 计算FL
+        focal_loss = (1 - pt) ** self.gamma * ce_loss
+        
+        if self.reduction == 'mean':
+            return focal_loss.mean()
+        elif self.reduction == 'sum':
+            return focal_loss.sum()
+        else:
+            return focal_loss
+
+class BinaryDiceLoss(nn.Module):
+    def __init__(self, smooth=1e-6):
+        super(BinaryDiceLoss, self).__init__()
+        self.smooth = smooth
+
+    def forward(self, inputs, targets):
+        # 将 inputs 转换为概率分布 (假设 inputs 是经过 LogSoftmax 的对数概率)
+        # 对于二分类问题，我们只需要取其中一个类别的概率
+        inputs = F.softmax(inputs, dim=1)[:, 1]  # 取第1类的概率
+
+        # 将 targets 转换为浮点型张量
+        targets = targets.float()
+
+        # 计算交集和并集
+        intersection = torch.sum(inputs * targets)
+        cardinality = torch.sum(inputs + targets)
+
+        # 计算 Dice 系数
+        dice_score = (2. * intersection + self.smooth) / (cardinality + self.smooth)
+
+        # 计算 Dice Loss
+        dice_loss = 1 - dice_score
+
+        return dice_loss

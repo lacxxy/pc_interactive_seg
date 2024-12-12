@@ -6,6 +6,7 @@ Date: Nov 2019
 import argparse
 import os
 from S3DISDataLoader import S3DISDataset
+from PLDataLoader import PLDataset
 import torch
 import datetime
 import logging
@@ -39,16 +40,17 @@ def parse_args():
     parser = argparse.ArgumentParser('Model')
     parser.add_argument('--model', type=str, default='pointnet_sem_seg', help='model name [default: pointnet_sem_seg]')
     parser.add_argument('--batch_size', type=int, default=64, help='Batch Size during training [default: 16]')
-    parser.add_argument('--epoch', default=32, type=int, help='Epoch to run [default: 32]')
+    parser.add_argument('--epoch', default=16, type=int, help='Epoch to run [default: 32]')
     parser.add_argument('--learning_rate', default=0.001, type=float, help='Initial learning rate [default: 0.001]')
     parser.add_argument('--gpu', type=str, default='0', help='GPU to use [default: GPU 0]')
     parser.add_argument('--optimizer', type=str, default='Adam', help='Adam or SGD [default: Adam]')
     parser.add_argument('--log_dir', type=str, default=None, help='Log path [default: None]')
     parser.add_argument('--decay_rate', type=float, default=1e-4, help='weight decay [default: 1e-4]')
     parser.add_argument('--npoint', type=int, default=4096, help='Point Number [default: 4096]')
-    parser.add_argument('--step_size', type=int, default=10, help='Decay step for lr decay [default: every 10 epochs]')
+    parser.add_argument('--step_size', type=int, default=4, help='Decay step for lr decay [default: every 10 epochs]')
     parser.add_argument('--lr_decay', type=float, default=0.7, help='Decay rate for lr decay [default: 0.7]')
     parser.add_argument('--test_area', type=int, default=5, help='Which area to use for test, option: 1-6 [default: 5]')
+    parser.add_argument('--dataset', type=str, default='s3dis', help='dataset')
     parser.add_argument('--round', type=int, default=1, help='interactivate round')
 
     return parser.parse_args()
@@ -109,15 +111,22 @@ def main(args):
     log_string('PARAMETER ...')
     log_string(args)
 
-    root = '/public/home/lh/lh/czh/stanford_indoor3d'
     NUM_CLASSES = 2
     NUM_POINT = args.npoint
     BATCH_SIZE = args.batch_size
 
-    print("start loading training data ...")
-    TRAIN_DATASET = S3DISDataset(split='train', data_root=root, num_point=NUM_POINT, test_area=args.test_area, block_size=1.0, sample_rate=1.0, transform=None)
-    print("start loading test data ...")
-    TEST_DATASET = S3DISDataset(split='test', data_root=root, num_point=NUM_POINT, test_area=args.test_area, block_size=1.0, sample_rate=1.0, transform=None)
+    if args.dataset == 's3dis':
+        root = '/public/home/lh/lh/czh/stanford_indoor3d'
+        print("start loading s3dis training data ...")
+        TRAIN_DATASET = S3DISDataset(split='train', data_root=root, num_point=NUM_POINT, test_area=args.test_area, block_size=1.0, sample_rate=1.0, transform=None)
+        print("start loading s3dis test data ...")
+        TEST_DATASET = S3DISDataset(split='test', data_root=root, num_point=NUM_POINT, test_area=args.test_area, block_size=1.0, sample_rate=1.0, transform=None)
+    elif args.dataset == 'powerline':
+        root = '/public/home/lh/lh/czh/powerline_data/Z'
+        print("start loading powerline training data ...")
+        TRAIN_DATASET = PLDataset(split='train', data_root=root, num_point=NUM_POINT, block_size=10.0, sample_rate=1.0, transform=None)
+        print("start loading powerline test data ...")
+        TEST_DATASET = PLDataset(split='test', data_root=root, num_point=NUM_POINT, block_size=10.0, sample_rate=1.0, transform=None)
 
     trainDataLoader = torch.utils.data.DataLoader(TRAIN_DATASET, batch_size=BATCH_SIZE, shuffle=True, num_workers=10,
                                                   pin_memory=True, drop_last=True,
@@ -201,6 +210,8 @@ def main(args):
         classifier = classifier.train()
 
         for i, (points, target,click_set) in tqdm(enumerate(trainDataLoader), total=len(trainDataLoader), smoothing=0.9):
+            points = points.data.numpy()
+            points[:, :, :3] = provider.rotate_point_cloud_z(points[:, :, :3])
             origin_points = points
             positive_click = click_set
             negative_click = np.zeros((BATCH_SIZE, 0, 3))
@@ -209,11 +220,8 @@ def main(args):
             for interactive_round in range(args.round):
                 optimizer.zero_grad()
                 points = origin_points
-                if interactive_round == 0:
-                    points = points.data.numpy()
-                else:
+                if interactive_round != 0:
                     #计算上一轮的fn，选择一个点
-                    points = points.data.numpy()
                     # 初始化结果数组
                     selected_po_points = np.zeros((fn.shape[0], 3))
                     selected_na_points = np.zeros((fn.shape[0], 3))
@@ -268,6 +276,9 @@ def main(args):
                     points[:,:,11] = np.reshape(pred_choice,[BATCH_SIZE,NUM_POINT])
             
                 #points[:, :, :3] = provider.rotate_point_cloud_z(points[:, :, :3])
+                # np.savetxt('./test.txt',np.concatenate((points[2],np.reshape(target[3],[-1,1])),-1))
+                # sys.exit(1)
+
                 points = torch.Tensor(points)
                 points, target = points.float().cuda(), target.long().cuda()
                 points = points.transpose(2, 1)
@@ -322,14 +333,14 @@ def main(args):
             total_correct = 0
             total_seen = 0
             loss_sum = 0
-            labelweights = np.zeros(NUM_CLASSES)
+            labelweights = np.ones(NUM_CLASSES)
             total_seen_class = [0 for _ in range(NUM_CLASSES)]
             total_correct_class = [0 for _ in range(NUM_CLASSES)]
             total_iou_deno_class = [0 for _ in range(NUM_CLASSES)]
             classifier = classifier.eval()
 
             log_string('---- EPOCH %03d EVALUATION ----' % (global_epoch + 1))
-            for i, (points, target,click_set) in tqdm(enumerate(testDataLoader), total=len(testDataLoader), smoothing=0.9):
+            for i, (points, target, click_set) in tqdm(enumerate(testDataLoader), total=len(testDataLoader), smoothing=0.9):
                 origin_points = points
                 positive_click = click_set
                 negative_click = np.zeros((BATCH_SIZE, 0, 3))
@@ -412,8 +423,8 @@ def main(args):
 
                     # total_correct += correct
                     total_seen += (BATCH_SIZE * NUM_POINT)
-                    tmp, _ = np.histogram(batch_label, range(NUM_CLASSES + 1))
-                    labelweights += tmp
+                    # tmp, _ = np.histogram(batch_label, range(NUM_CLASSES + 1))
+                    # labelweights += tmp
 
                     batch_label = batch_label.reshape(-1, NUM_POINT)
 
@@ -435,13 +446,15 @@ def main(args):
 
                     iou_test_sum[interactive_round] += total_correct_class_test / total_iou_deno_class_test
 
-            labelweights = labelweights.astype(float) / np.sum(labelweights.astype(float))
+            #labelweights = labelweights.astype(float) / np.sum(labelweights.astype(float))
             mIoU = np.mean(np.array(total_correct_class) / (np.array(total_iou_deno_class, dtype=float) + 1e-6))
             log_string('eval mean loss: %f' % (loss_sum / float(num_batches)))
             log_string('eval point avg class IoU: %f' % (mIoU))
             log_string('eval point accuracy: %f' % (total_correct / float(total_seen)))
             log_string('eval point avg class acc: %f' % (
                 np.mean(np.array(total_correct_class) / (np.array(total_seen_class, dtype=float) + 1e-6))))
+
+            
 
             iou_per_class_str = '------- IoU --------\n'
             for l in range(NUM_CLASSES):

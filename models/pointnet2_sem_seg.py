@@ -1,7 +1,7 @@
 import torch.nn as nn
 import torch.nn.functional as F
-from models.pointnet2_utils import PointNetSetAbstraction,PointNetFeaturePropagation
-
+from models.pointnet2_utils import PointNetSetAbstraction,PointNetFeaturePropagation,FocalLoss,BinaryDiceLoss
+import numpy as np
 
 class get_model(nn.Module):
     def __init__(self, num_classes):
@@ -16,7 +16,7 @@ class get_model(nn.Module):
         self.fp1 = PointNetFeaturePropagation(128, [128, 128, 128])
         self.conv1 = nn.Conv1d(128, 128, 1)
         self.bn1 = nn.BatchNorm1d(128)
-        self.drop1 = nn.Dropout(0.5)
+        self.drop1 = nn.Dropout(0.6)
         self.conv2 = nn.Conv1d(128, num_classes, 1)
 
     def forward(self, xyz):
@@ -44,7 +44,26 @@ class get_loss(nn.Module):
     def __init__(self):
         super(get_loss, self).__init__()
     def forward(self, pred, target, trans_feat, weight):
-        total_loss = F.nll_loss(pred, target, weight=weight)
+        # 交叉熵
+        # total_loss = F.nll_loss(pred, target, weight=weight)
+
+        # FocalLoss
+        # focal_loss = FocalLoss(alpha=weight, gamma=2, reduction='mean')
+        # total_loss = focal_loss(pred, target)
+
+        # DiceLoss
+        # dice_loss = BinaryDiceLoss()
+        # total_loss = dice_loss(pred, target)
+
+        # Dice + CrossEntropy
+        dice_loss = BinaryDiceLoss()
+        cross_loss = F.nll_loss(pred, target, weight=weight)
+        total_loss = cross_loss + dice_loss(pred, target)
+
+        # Dice + FocalLoss
+        # dice_loss = BinaryDiceLoss()
+        # focal_loss = FocalLoss(alpha=weight, gamma=2, reduction='mean')
+        # total_loss = focal_loss(pred, target) + dice_loss(pred, target)
 
         return total_loss
 

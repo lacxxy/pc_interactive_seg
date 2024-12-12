@@ -65,7 +65,6 @@ def collect_point_label(anno_path, out_filename, file_format='txt'):
     ##归一化
     xyz_min = np.amin(data_label, axis=0)[0:3]
     data_label[:, 0:3] -= xyz_min
-    print(file_format)
     if file_format=='txt':
         fout = open(out_filename, 'w')
         for i in range(data_label.shape[0]):

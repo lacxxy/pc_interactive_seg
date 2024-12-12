@@ -125,7 +125,7 @@ def main(args):
             points = points.float().cuda()
             points = points.transpose(2, 1)
             seg_pred, trans_feat = classifier(points)
-
+            
             pred_val = seg_pred.contiguous().cpu().data.numpy()
             pred_val = np.argmax(pred_val, 2)
             pred_val = np.reshape(pred_val,[num_point,-1])
@@ -133,7 +133,7 @@ def main(args):
             print(np.shape(selected_points),np.shape(pred_val))
             result = np.concatenate((selected_points,pred_val),axis=-1)
             ##保存
-            np.savetxt('test%f.txt'%(round),result)
+            np.savetxt('test%s.txt'%(round),result)
             round += 1
 
 if __name__ == '__main__':   

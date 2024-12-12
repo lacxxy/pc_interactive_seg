@@ -56,7 +56,7 @@ export CUDA_HOME=/public/home/lh/lh/zjn/environment/cuda-11.6/
 export PATH="/public/home/lh/lh/zjn/environment/cuda-11.6/bin:$PATH"
 export LD_LIBRARY_PATH="/public/home/lh/lh/zjn/environment/cuda-11.6/lib64:$LD_LIBRARY_PATH"
 
-python /public/home/lh/lh/czh/interactivate/train_interactive.py --round 5 --model pointnet2_sem_seg
+python /public/home/lh/lh/czh/interactivate/train_interactive.py --round 7 --model pointnet2_sem_seg
 
 # 记录作业运行结束时间
 echo "++++++++++++++++++++++++++++++++++++++++"
